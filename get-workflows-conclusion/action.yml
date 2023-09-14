@@ -1,5 +1,5 @@
-name:        'workflows-status'
-description: 'Check workflows status'
+name:        'get-workflows-conclusion'
+description: 'Check conclusion of multiple workflows'
 author:      '@wipe2238'
 
 #
@@ -24,7 +24,6 @@ inputs:
 
 outputs:
  success:
-  description: success
   value:       ${{ steps.check.outputs.success }}
 
 runs:
