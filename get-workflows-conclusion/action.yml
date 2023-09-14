@@ -1,0 +1,64 @@
+name:        'workflows-status'
+description: 'Check workflows status'
+author:      '@wipe2238'
+
+#
+# Limitations:
+# - checking status of currently running workflow always returns false
+#
+
+inputs:
+ repo:
+  required:    true
+  default:     ${{ github.repository }}
+ branch:
+  required:    true
+  default:     master
+ workflows:
+  required:    true
+ token:
+  required:    true
+  default:     ${{ github.token }}
+ debug:
+  required: false
+
+outputs:
+ success:
+  description: success
+  value:       ${{ steps.check.outputs.success }}
+
+runs:
+ using: composite
+ steps:
+
+ - run:   |
+          : validate inputs
+          set -o errexit
+          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          [[ "${{ inputs.repo }}" ]] || { echo "[Error] Empty input: repo"; exit 1; }
+          [[ "${{ inputs.branch }}" ]] || { echo "[Error] Empty input: branch"; exit 1; }
+          [[ "${{ inputs.workflows }}" ]] || { echo "[Error] Empty input: workflows"; exit 1; }
+          [[ "${{ inputs.token }}" ]] || { echo "[Error] Empty input: token"; exit 1; }
+   shell: bash
+
+ - id:    check
+   run:   |
+          : check workflows status
+          set -o errexit
+          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          output=true
+          for workflow in ${{ inputs.workflows }}; do
+              status="$(gh run list --workflow "${workflow}" --branch "${{ inputs.branch }}" --limit 1 --json conclusion --jq .[0].conclusion --repo "${{ inputs.repo }}" || true)"
+              if [[ "${status}" == "success" ]]; then
+                 echo "✓  ${workflow}"
+              else
+                 echo "✗  ${workflow}"
+                 output=false
+              fi
+          done
+          echo "success=${output}" >> "$GITHUB_ENV"
+   env:
+    GH_TOKEN: ${{ inputs.token }}
+   shell: bash
