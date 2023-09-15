@@ -1,0 +1,148 @@
+name:        'get-last-commit'
+description: 'Extract informations about last commit from GitHub API'
+author:      '@wipe2238'
+
+inputs:
+ repo:
+  required:    true
+  default:     ${{ github.repository }}
+ sha:
+  required:    true
+  default:     ${{ github.ref }}
+ path:
+  required:    true
+  default:     '/'
+ token:
+  required:    true
+  default:     ${{ github.token }}
+ exclude-authors:
+  required:    false
+ exclude-committers:
+  required:    false
+ debug:
+  required: false
+
+outputs:
+ author:
+  value:       ${{ steps.find.outputs.author }}
+ author-name:
+  value:       ${{ steps.find.outputs.author-name }}
+ author-login:
+  value:       ${{ steps.find.outputs.author-login }}
+ author-url:
+  value:       ${{ steps.find.outputs.author-url }}
+ committer:
+  value:       ${{ steps.find.outputs.committer }}
+ commiter-name:
+  value:       ${{ steps.find.outputs.committer-name }}
+ committer-login:
+  value:       ${{ steps.find.outputs.committer-login }}
+ committer-url:
+  value:       ${{ steps.find.outputs.committer-url }}
+ date:
+  value:       ${{ steps.find.outputs.date }}
+ age:
+  value:       ${{ steps.find.outputs.age }}
+ sha:
+  value:       ${{ steps.find.outputs.sha }}
+ url:
+  value:       ${{ steps.find.outputs.url }}
+ json:
+  value:       ${{ steps.find.outputs.json }}
+
+runs:
+ using: composite
+ steps:
+
+ - id:    inputs
+   run:   |
+          : validate inputs
+          set -o errexit
+          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          [[ "${{ inputs.repo }}" ]] || { echo "[Error] Empty input: repo"; exit 1; }
+          [[ "${{ inputs.sha }}" ]] || { echo "[Error] Empty input: sha"; exit 1; }
+          [[ "${{ inputs.path }}" ]] || { echo "[Error] Empty input: path"; exit 1; }
+          [[ "${{ inputs.token }}" ]] || { echo "[Error] Empty input: token"; exit 1; }
+
+          api=
+          [[ "${{ inputs.sha }}" ]] && api+="&sha=${{ inputs.sha }}"
+          [[ "${{ inputs.path }}" ]] && api+="&path=${{ inputs.path }}"
+          echo "api=$(echo "$api" | sed -e 's!^&!?!')" >> "$GITHUB_OUTPUT"
+   shell: bash
+
+ - id:    find
+   run:   |
+          : find last commit
+          set -o errexit
+          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          json="$(gh api repos/${{ inputs.repo }}/commits${{ steps.inputs.outputs.api }})"
+
+          if [[ "$json" == "[]" ]]; then
+             echo "[Warning] GitHub API returned empty array, cannot continue"
+             exit 0
+          fi
+
+          for login in ${{ inputs.exclude-authors }}; do
+              json="$(jq --arg login ${login} '[.[] | select(.author.login != $login)]' <<< "$json")"
+          done
+
+          for login in ${{ inputs.exclude-committers }}; do
+              json="$(jq --arg login ${login} '[.[] | select(.committer.login != $login)]' <<< "$json")"
+          done
+
+          # keep only first entry and minimize
+          json="$(jq --compact-output '.[0]' <<< "$json")"
+
+          author_name="$(jq --raw-output '.commit.author.name' <<< "$json")"
+          author_login="$(jq --raw-output '.author.login' <<< "$json")"
+          author_url="$(jq --raw-output '.author.html_url' <<< "$json")"
+          author="$author_name"
+          [[ "$author_name" != "$author_login" ]] && author+=" (@$author_login)"
+          author+=" ($author_url)"
+
+          committer_name="$(jq --raw-output '.commit.committer.name' <<< "$json")"
+          committer_login="$(jq --raw-output '.committer.login' <<< "$json")"
+          committer_url="$(jq --raw-output '.committer.html_url' <<< "$json")"
+          committer="$committer_name"
+          [[ "$committer_name" != "$committer_login" ]] && committer+=" (@$committer_login)"
+          committer+=" ($committer_url)"
+
+          date="$(jq --raw-output '.commit.author.date' <<< "$json")"
+          age="$(( ($(date --utc +%s) - $(date --utc --date="$date" +%s)) / 86400 ))"
+
+          sha="$(jq --raw-output '.sha' <<< "$json")"
+          url="$(jq --raw-output '.html_url' <<< "$json")"
+
+          echo "::group::Dump : commit data"
+          jq --color-output '.' <<< "$json"
+          echo "::endgroup::"
+
+          echo "Author ...... $author"
+          [[ "$author" != "$committer" ]] &&
+          echo "Committer ... $committer"
+          echo "Date ........ $date"
+          echo "Age ......... $age day$([[ $age -ne 1 ]] && echo "s")"
+          echo "SHA ......... $sha"
+          echo "URL ......... $url"
+
+          echo "author=$author" >> "$GITHUB_OUTPUT"
+          echo "author-name=$author_name" >> "$GITHUB_OUTPUT"
+          echo "author-login=$author_login" >> "$GITHUB_OUTPUT"
+          echo "author-url=$author_url" >> "$GITHUB_OUTPUT"
+
+          echo "committer=$committer" >> "$GITHUB_OUTPUT"
+          echo "committer-name=$committer_name" >> "$GITHUB_OUTPUT"
+          echo "committer-login=$committer_login" >> "$GITHUB_OUTPUT"
+          echo "committer-url=$committer_url" >> "$GITHUB_OUTPUT"
+
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+          echo "age=$age" >> "$GITHUB_OUTPUT"
+
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "json=$json" >> "$GITHUB_OUTPUT"
+   shell: bash
+   env:
+    GH_TOKEN: ${{ inputs.token }}
