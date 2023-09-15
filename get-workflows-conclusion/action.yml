@@ -58,6 +58,6 @@ runs:
               fi
           done
           echo "success=${output}" >> "$GITHUB_ENV"
+   shell: bash
    env:
     GH_TOKEN: ${{ inputs.token }}
-   shell: bash
