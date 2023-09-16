@@ -1,0 +1,68 @@
+name:        'cache/set'
+description: 'Overwrite cache content'
+author:      '@wipe2238'
+
+inputs:
+ key:
+  required:    true
+ path:
+  required:    false
+ reset:
+  required:    false
+  default:     false
+ #
+ repo:
+  required:    true
+  default:     ${{ github.repository }}
+ token:
+  required:    true
+  default:     ${{ github.token }}
+ #
+ debug:
+  required: false
+
+runs:
+ using: composite
+ steps:
+
+ - id:    inputs
+   run:   |
+          : validate inputs
+          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          [[ "${{ inputs.reset }}" ]] || { echo "[Error] Empty input: reset"; exit 1; }
+          [[ "${{ inputs.repo }}" ]]  || { echo "[Error] Empty input: repo"; exit 1; }
+          [[ "${{ inputs.key }}" ]]   || { echo "[Error] Empty input: key"; exit 1; }
+          [[ "${{ inputs.token }}" ]] || { echo "[Error] Empty input: token"; exit 1; }
+
+          if [[ "${{ inputs.reset }}" == "true" ]]; then
+             echo "path=${{ github.action_path }}/empty-directory" >> "$GITHUB_OUTPUT"
+          else
+             [[ "${{ inputs.path }}" ]] || { echo "[Error] Empty input: path"; exit 1; }
+             [[ -d "${{ inputs.path }}" ]] || { echo "[Error] Cache directory does not exist: ${{ inputs.path }}"; exit 1; }
+             echo "path=${{ inputs.path }}" >> "$GITHUB_OUTPUT"
+          fi
+   shell: bash
+
+ - run:   |
+          : delete old cache entry
+          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          gh cache delete ${{ inputs.key }} --repo ${{ inputs.repo }} || true
+   shell: bash
+   env:
+    GH_TOKEN: ${{ inputs.token }}
+
+ - if:    inputs.reset == 'true'
+   run:   |
+          : create empty directory for reset
+          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          mkdir --parents --verbose ${{ steps.inputs.outputs.path }}
+   shell: bash
+
+ - name: Save cache
+   uses: actions/cache/save@v3
+   with:
+    key:  ${{ inputs.key }}
+    path: ${{ steps.inputs.outputs.path }}
