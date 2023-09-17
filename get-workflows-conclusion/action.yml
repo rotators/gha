@@ -32,20 +32,18 @@ runs:
 
  - run:   |
           : validate inputs
-          set -o errexit
-          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
 
-          [[ "${{ inputs.repo }}" ]] || { echo "[Error] Empty input: repo"; exit 1; }
+          [[ "${{ inputs.repo }}" ]]   || { echo "[Error] Empty input: repo"; exit 1; }
           [[ "${{ inputs.branch }}" ]] || { echo "[Error] Empty input: branch"; exit 1; }
           [[ "${{ inputs.workflows }}" ]] || { echo "[Error] Empty input: workflows"; exit 1; }
-          [[ "${{ inputs.token }}" ]] || { echo "[Error] Empty input: token"; exit 1; }
+          [[ "${{ inputs.token }}" ]]  || { echo "[Error] Empty input: token"; exit 1; }
    shell: bash
 
  - id:    check
    run:   |
           : check workflows status
-          set -o errexit
-          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
 
           output=true
           for workflow in ${{ inputs.workflows }}; do

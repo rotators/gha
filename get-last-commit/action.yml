@@ -57,16 +57,15 @@ runs:
  - id:    inputs
    run:   |
           : validate inputs
-          set -o errexit
-          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
 
-          [[ "${{ inputs.repo }}" ]] || { echo "[Error] Empty input: repo"; exit 1; }
-          [[ "${{ inputs.sha }}" ]] || { echo "[Error] Empty input: sha"; exit 1; }
-          [[ "${{ inputs.path }}" ]] || { echo "[Error] Empty input: path"; exit 1; }
+          [[ "${{ inputs.repo }}" ]]  || { echo "[Error] Empty input: repo"; exit 1; }
+          [[ "${{ inputs.sha }}" ]]   || { echo "[Error] Empty input: sha"; exit 1; }
+          [[ "${{ inputs.path }}" ]]  || { echo "[Error] Empty input: path"; exit 1; }
           [[ "${{ inputs.token }}" ]] || { echo "[Error] Empty input: token"; exit 1; }
 
           api=
-          [[ "${{ inputs.sha }}" ]] && api+="&sha=${{ inputs.sha }}"
+          [[ "${{ inputs.sha }}" ]]  && api+="&sha=${{ inputs.sha }}"
           [[ "${{ inputs.path }}" ]] && api+="&path=${{ inputs.path }}"
           echo "api=$(echo "$api" | sed -e 's!^&!?!')" >> "$GITHUB_OUTPUT"
    shell: bash
@@ -74,8 +73,7 @@ runs:
  - id:    find
    run:   |
           : find last commit
-          set -o errexit
-          [[ "${{ inputs.debug }}" ]] && set -o xtrace
+          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
 
           json="$(gh api repos/${{ inputs.repo }}/commits${{ steps.inputs.outputs.api }})"
 

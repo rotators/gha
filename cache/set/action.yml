@@ -38,7 +38,7 @@ runs:
           if [[ "${{ inputs.reset }}" == "true" ]]; then
              echo "path=${{ github.action_path }}/empty-directory" >> "$GITHUB_OUTPUT"
           else
-             [[ "${{ inputs.path }}" ]] || { echo "[Error] Empty input: path"; exit 1; }
+             [[ "${{ inputs.path }}" ]]    || { echo "[Error] Empty input: path"; exit 1; }
              [[ -d "${{ inputs.path }}" ]] || { echo "[Error] Cache directory does not exist: ${{ inputs.path }}"; exit 1; }
              echo "path=${{ inputs.path }}" >> "$GITHUB_OUTPUT"
           fi
