@@ -100,6 +100,11 @@ runs:
           [[ "$author_name" != "$author_login" ]] && author+=" (@$author_login)"
           author+=" ($author_url)"
 
+          echo "author=$author" >> "$GITHUB_OUTPUT"
+          echo "author-name=$author_name" >> "$GITHUB_OUTPUT"
+          echo "author-login=$author_login" >> "$GITHUB_OUTPUT"
+          echo "author-url=$author_url" >> "$GITHUB_OUTPUT"
+
           committer_name="$(jq --raw-output '.commit.committer.name' <<< "$json")"
           committer_login="$(jq --raw-output '.committer.login' <<< "$json")"
           committer_url="$(jq --raw-output '.committer.html_url' <<< "$json")"
@@ -107,40 +112,34 @@ runs:
           [[ "$committer_name" != "$committer_login" ]] && committer+=" (@$committer_login)"
           committer+=" ($committer_url)"
 
-          date="$(jq --raw-output '.commit.author.date' <<< "$json")"
-          age="$(( ($(date --utc +%s) - $(date --utc --date="$date" +%s)) / 86400 ))"
-
-          sha="$(jq --raw-output '.sha' <<< "$json")"
-          url="$(jq --raw-output '.html_url' <<< "$json")"
-
-          echo "::group::Dump : commit data"
-          jq --color-output '.' <<< "$json"
-          echo "::endgroup::"
-
-          echo "Author ...... $author"
-          [[ "$author" != "$committer" ]] &&
-          echo "Committer ... $committer"
-          echo "Date ........ $date"
-          echo "Age ......... $age day$([[ $age -ne 1 ]] && echo "s")"
-          echo "SHA ......... $sha"
-          echo "URL ......... $url"
-
-          echo "author=$author" >> "$GITHUB_OUTPUT"
-          echo "author-name=$author_name" >> "$GITHUB_OUTPUT"
-          echo "author-login=$author_login" >> "$GITHUB_OUTPUT"
-          echo "author-url=$author_url" >> "$GITHUB_OUTPUT"
-
           echo "committer=$committer" >> "$GITHUB_OUTPUT"
           echo "committer-name=$committer_name" >> "$GITHUB_OUTPUT"
           echo "committer-login=$committer_login" >> "$GITHUB_OUTPUT"
           echo "committer-url=$committer_url" >> "$GITHUB_OUTPUT"
 
+          date="$(jq --raw-output '.commit.author.date' <<< "$json")"
           echo "date=$date" >> "$GITHUB_OUTPUT"
-          echo "age=$age" >> "$GITHUB_OUTPUT"
+          echo "age=$(( ($(date --utc +%s) - $(date --utc --date="$date" +%s)) / 86400 ))" >> "$GITHUB_OUTPUT"
 
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "sha=$(jq --raw-output '.sha' <<< "$json")" >> "$GITHUB_OUTPUT"
+          echo "url=$(jq --raw-output '.html_url' <<< "$json")" >> "$GITHUB_OUTPUT"
           echo "json=$json" >> "$GITHUB_OUTPUT"
    shell: bash
    env:
     GH_TOKEN: ${{ inputs.token }}
+
+ - run:   |
+          : show last commit
+
+          echo "  Author ...... ${{ steps.find.outputs.author }}"
+          [[ "${{ steps.find.outputs.author }}" != "${{ steps.find.outputs.committer }}" ]] &&
+          echo "  Committer ... ${{ steps.find.outputs.author }}"
+          echo "  Date ........ ${{ steps.find.outputs.date }}"
+          echo "  Age ......... ${{ steps.find.outputs.age }} day$([[ ${{ steps.find.outputs.age }} -ne 1 ]] && echo "s")"
+          echo "  SHA ......... ${{ steps.find.outputs.sha }}"
+          echo "  URL ......... ${{ steps.find.outputs.url }}"
+          echo "::group::JSON ........ (click to expand)"
+          # NOTE: when using step output, it must be surrounded by '' and not ""
+          jq --color-output '.' <<< '${{ steps.find.outputs.json }}'
+          echo "::endgroup::"
+   shell: bash
