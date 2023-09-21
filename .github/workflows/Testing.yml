@@ -1,0 +1,37 @@
+name: Testing
+
+on:
+ workflow_dispatch:
+  inputs:
+   job:
+    required: true
+    type:     choice
+    options:
+    - Variables
+
+defaults:
+ run:
+  shell: bash
+
+jobs:
+ Variables:
+  if: github.event.inputs.job == 'Variables'
+  runs-on: ubuntu-latest
+  strategy:
+   matrix:
+    cfg:
+    - { arg: 'repo', type: '${{ github.repository }}' }
+    - { arg: 'org',  type: '${{ github.repository_owner }}' }
+  steps:
+
+  - run: gh variable list --${{ matrix.cfg.arg }} ${{ matrix.cfg.type }} || true
+    env:
+     GH_TOKEN: ${{ secrets.ANTALASKAYA_TOKEN }}
+
+  - run: gh variable set GHA_TEST_${{ matrix.cfg.arg }} --body OK --${{ matrix.cfg.arg }} ${{ matrix.cfg.type }} || true
+    env:
+     GH_TOKEN: ${{ secrets.ANTALASKAYA_TOKEN }}
+
+  - run: gh variable list --${{ matrix.cfg.arg }} ${{ matrix.cfg.type }} || true
+    env:
+     GH_TOKEN: ${{ secrets.ANTALASKAYA_TOKEN }}
