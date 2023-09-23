@@ -7,18 +7,35 @@ inputs:
   required:    true
   default:     ${{ github.repository }}
  sha:
-  required:    true
-  default:     ${{ github.ref }}
+  required:    false
+ #default:     ${{ github.ref }}
  path:
-  required:    true
-  default:     '/'
+  required:    false
+ #default:     '.'
  token:
   required:    true
   default:     ${{ github.token }}
+ author:
+  required:    false
  exclude-authors:
+  required:    false
+ committer:
   required:    false
  exclude-committers:
   required:    false
+ message:
+  required:    false
+ message-search:
+  required:    false
+  default:     'contains'
+ jq:
+  required:    false
+ gh-paginate:
+  required:    false
+  default:     false
+ error-on-empty:
+  required:    false
+  default:     true
  debug:
   required: false
 
@@ -41,14 +58,18 @@ outputs:
   value:       ${{ steps.find.outputs.committer-url }}
  date:
   value:       ${{ steps.find.outputs.date }}
- age:
-  value:       ${{ steps.find.outputs.age }}
+ age-days:
+  value:       ${{ steps.find.outputs.age-days }}
+ age-hours:
+  value:       ${{ steps.find.outputs.age-hours }}
  sha:
   value:       ${{ steps.find.outputs.sha }}
  url:
   value:       ${{ steps.find.outputs.url }}
  json:
   value:       ${{ steps.find.outputs.json }}
+ empty:
+  value:       ${{ steps.find.outputs.empty }}
 
 runs:
  using: composite
@@ -57,47 +78,145 @@ runs:
  - id:    inputs
    run:   |
           : validate inputs
-          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
+          set -o errexit -o nounset && [[ "${{ inputs.debug }}" ]] && set -o xtrace
+
+          # validate booleans
+
+          ok=0
+          [[ "${{ inputs.gh-paginate }}" == "true" ]]  && ok=1
+          [[ "${{ inputs.gh-paginate }}" == "false" ]] && ok=1
+          [[ $ok -eq 1 ]] || { echo "[Error] Invalid input value: paginate = \"${{ inputs.paginate }}\""; exit 1; }
+
+          ok=0
+          [[ "${{ inputs.error-on-empty }}" == "true" ]]  && ok=1
+          [[ "${{ inputs.error-on-empty }}" == "false" ]] && ok=1
+          [[ $ok -eq 1 ]] || { echo "[Error] Invalid input value: error-on-empty = \"${{ inputs.error-on-empty }}\""; exit 1; }
+
+          # validate required inputs
 
           [[ "${{ inputs.repo }}" ]]  || { echo "[Error] Empty input: repo"; exit 1; }
-          [[ "${{ inputs.sha }}" ]]   || { echo "[Error] Empty input: sha"; exit 1; }
-          [[ "${{ inputs.path }}" ]]  || { echo "[Error] Empty input: path"; exit 1; }
+          #[[ "${{ inputs.sha }}" ]]  || { echo "[Error] Empty input: sha"; exit 1; }
+          #[[ "${{ inputs.path }}" ]] || { echo "[Error] Empty input: path"; exit 1; }
           [[ "${{ inputs.token }}" ]] || { echo "[Error] Empty input: token"; exit 1; }
 
-          api=
-          [[ "${{ inputs.sha }}" ]]  && api+="&sha=${{ inputs.sha }}"
-          [[ "${{ inputs.path }}" ]] && api+="&path=${{ inputs.path }}"
-          echo "api=$(echo "$api" | sed -e 's!^&!?!')" >> "$GITHUB_OUTPUT"
+          if [[ "${{ inputs.message != '' }}" == "true" ]]; then
+             ok=0
+             [[ "${{ inputs.message-search }}" == "contains" ]]         && ok=1
+             [[ "${{ inputs.message-search }}" == "starts-with" ]]      && ok=1
+             [[ "${{ inputs.message-search }}" == "ends-with" ]]        && ok=1
+             [[ "${{ inputs.message-search }}" == "line-starts-with" ]] && ok=1
+             [[ "${{ inputs.message-search }}" == "line-ends-with" ]]   && ok=1
+             [[ $ok -eq 1 ]] || { echo "[Error] Invalid input value: message-search = \"${{ inputs.message-search }}\""; exit 1; }
+          fi
+
+          # convert inputs
+
+          output=
+          [[ "${{ inputs.gh-paginate }}" == "true" ]] && output+=" --paginate"
+          echo "api-options=$output" >> "$GITHUB_OUTPUT"
+
+          output="&per_page=100"
+          [[ "${{ inputs.sha }}" ]]       && output+="&sha=${{ inputs.sha }}"
+          [[ "${{ inputs.path }}" ]]      && output+="&path=${{ inputs.path }}"
+          [[ "${{ inputs.author }}" ]]    && output+="&author=${{ inputs.author }}"
+          [[ "${{ inputs.committer }}" ]] && output+="&commiter=${{ inputs.committer }}"
+          echo "api-query=$(echo "$output" | sed -e 's!^&!?!')" >> "$GITHUB_OUTPUT"
+   shell: bash
+
+ - if:    ${{ inputs.debug }}
+   run:   |
+          : check rate limit
+          gh api rate_limit | jq --color-output
+   shell: bash
+   env:
+    GH_TOKEN: ${{ inputs.token }}
+
+ - run:   |
+          : check software version
+          gh --version | grep ^gh
+          jq --version
    shell: bash
 
  - id:    find
    run:   |
           : find last commit
-          set -o errexit && [[ "${{ inputs.debug }}" ]] && set -o xtrace
+          set -o errexit -o nounset && [[ "${{ inputs.debug }}" ]] && set -o xtrace
 
-          json="$(gh api repos/${{ inputs.repo }}/commits${{ steps.inputs.outputs.api }})"
+          json_check()
+          {
+            local var="$(jq length <<< "$1")"
+            local act="$2"
 
-          if [[ "$json" == "[]" ]]; then
-             echo "[Warning] GitHub API returned empty array, cannot continue"
-             exit 0
+            local msg="No commits found after '$act', cannot continue"
+
+            if [[ "$var" == "" ]] || [[ "$var" == "0" ]]; then
+               if [[ "${{ inputs.error-on-empty }}" == "true" ]]; then
+                  echo "[Error] $msg"
+                  exit 1
+               else
+                  echo "empty=true" >> "$GITHUB_OUTPUT"
+                  echo "[Warning] $msg"
+                  exit 0
+               fi
+            fi
+
+            echo "Results ($act): $var"
+          }
+
+          json="$(gh api${{ steps.inputs.outputs.api-options }} "repos/${{ inputs.repo }}/commits${{ steps.inputs.outputs.api-query }}" )"
+          json_check "$json" "api"
+
+          if [[ "${{ inputs.jq != '' }}" == "true" ]]; then
+             json="$(jq '[.[] | select( ${{ inputs.jq }} )]' <<< "$json")"
+             json_check "$json" "jq"
           fi
 
+          [[ "${{ inputs.exclude-authors != '' }}" == "true" ]] &&
           for login in ${{ inputs.exclude-authors }}; do
               json="$(jq --arg login ${login} '[.[] | select(.author.login != $login)]' <<< "$json")"
+              json_check "$json" "exclude-authors:$login"
           done
 
+          [[ "${{ inputs.exclude-committers != '' }}" == "true" ]] &&
           for login in ${{ inputs.exclude-committers }}; do
               json="$(jq --arg login ${login} '[.[] | select(.committer.login != $login)]' <<< "$json")"
+              json_check "$json" "exclude-committers:$login"
           done
+
+          if [[ "${{ inputs.message != '' }}" == "true" ]] && [[ "${{ inputs.message_search != '' }}" == "true" ]]; then
+             message='${{ inputs.message }}'
+             message_search='${{ inputs.message-search }}'
+             if   [[ "$message_search" == "contains" ]]; then
+                  json="$(jq --arg msg "$message" '[.[] | select( .commit.message | contains($msg) )]' <<< "$json")"
+             elif [[ "$message_search" == "starts-with" ]]; then
+                  json="$(jq --arg msg "$message" '[.[] | select( .commit.message | startswith($msg) )]' <<< "$json")"
+             elif [[ "$message_search" == "ends-with" ]]; then
+                  json="$(jq --arg msg "$message" '[.[] | select( .commit.message | endswith($msg) )]' <<< "$json")"
+             elif [[ "$message_search" == "line-starts-with" ]]; then
+                  json="$(jq --arg msg "$message" '[.[] | select( .commit.message | split("\n") | .[] | startswith($msg) )]' <<< "$json")"
+             elif [[ "$message_search" == "line-ends-with" ]]; then
+                  json="$(jq --arg msg "$message" '[.[] | select( .commit.message | split("\n") | .[] | endswith($msg) )]' <<< "$json")"
+             else
+                  echo "[Error] Invalid input value: message-search = \"${{ inputs.message-search }}\""
+                  exit 1
+             fi
+             json_check "$json" "message:$message_search"
+          fi
 
           # keep only first entry and minimize
           json="$(jq --compact-output '.[0]' <<< "$json")"
+
+          echo "empty=false" >> "$GITHUB_OUTPUT"
+
+          # expose interesting parts of commit data
+          # 'author' and 'commiter' are intended for displaying only
 
           author_name="$(jq --raw-output '.commit.author.name' <<< "$json")"
           author_login="$(jq --raw-output '.author.login' <<< "$json")"
           author_url="$(jq --raw-output '.author.html_url' <<< "$json")"
           author="$author_name"
-          [[ "$author_name" != "$author_login" ]] && author+=" (@$author_login)"
+          [[ "$author_name" != "$author_login" ]] &&
+          author+=" (@$author_login)"
           author+=" ($author_url)"
 
           echo "author=$author" >> "$GITHUB_OUTPUT"
@@ -109,7 +228,8 @@ runs:
           committer_login="$(jq --raw-output '.committer.login' <<< "$json")"
           committer_url="$(jq --raw-output '.committer.html_url' <<< "$json")"
           committer="$committer_name"
-          [[ "$committer_name" != "$committer_login" ]] && committer+=" (@$committer_login)"
+          [[ "$committer_name" != "$committer_login" ]] &&
+          committer+=" (@$committer_login)"
           committer+=" ($committer_url)"
 
           echo "committer=$committer" >> "$GITHUB_OUTPUT"
@@ -119,27 +239,38 @@ runs:
 
           date="$(jq --raw-output '.commit.author.date' <<< "$json")"
           echo "date=$date" >> "$GITHUB_OUTPUT"
-          echo "age=$(( ($(date --utc +%s) - $(date --utc --date="$date" +%s)) / 86400 ))" >> "$GITHUB_OUTPUT"
+          echo "age-hours=$(( ($(date --utc +%s) - $(date --utc --date="$date" +%s)) / 3600 ))" >> "$GITHUB_OUTPUT"
+          echo "age-days=$(( ($(date --utc +%s) - $(date --utc --date="$date" +%s)) / 86400 ))" >> "$GITHUB_OUTPUT"
 
           echo "sha=$(jq --raw-output '.sha' <<< "$json")" >> "$GITHUB_OUTPUT"
           echo "url=$(jq --raw-output '.html_url' <<< "$json")" >> "$GITHUB_OUTPUT"
+
+          # expose commit data as-is
           echo "json=$json" >> "$GITHUB_OUTPUT"
    shell: bash
    env:
     GH_TOKEN: ${{ inputs.token }}
 
- - run:   |
+ - if:    steps.find.outputs.empty == 'false'
+   run:   |
           : show last commit
+          set -o errexit -o nounset && [[ "${{ inputs.debug }}" ]] && set -o xtrace
 
           echo "  Author ...... ${{ steps.find.outputs.author }}"
           [[ "${{ steps.find.outputs.author }}" != "${{ steps.find.outputs.committer }}" ]] &&
-          echo "  Committer ... ${{ steps.find.outputs.author }}"
+          echo "  Committer ... ${{ steps.find.outputs.committer }}"
           echo "  Date ........ ${{ steps.find.outputs.date }}"
-          echo "  Age ......... ${{ steps.find.outputs.age }} day$([[ ${{ steps.find.outputs.age }} -ne 1 ]] && echo "s")"
+          echo "  Age ......... ${{ steps.find.outputs.age-days }} day$([[ ${{ steps.find.outputs.age-days }} -ne 1 ]] && echo "s") (${{ steps.find.outputs.age-hours }} hour$([[ ${{ steps.find.outputs.age-hours }} -ne 1 ]] && echo "s"))"
           echo "  SHA ......... ${{ steps.find.outputs.sha }}"
           echo "  URL ......... ${{ steps.find.outputs.url }}"
+
+          echo "::group::Message ..... (click to expand)"
+          echo "${{ fromJSON(steps.find.outputs.json).commit.message }}"
+          echo "::endgroup::"
+
           echo "::group::JSON ........ (click to expand)"
-          # NOTE: when using step output, it must be surrounded by '' and not ""
-          jq --color-output '.' <<< '${{ steps.find.outputs.json }}'
+          jq --color-output '.' <<< "$COMMIT_JSON"
           echo "::endgroup::"
    shell: bash
+   env:
+    COMMIT_JSON: ${{ toJSON(fromJSON(steps.find.outputs.json)) }}
