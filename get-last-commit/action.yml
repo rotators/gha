@@ -183,7 +183,7 @@ runs:
               json_check "$json" "exclude-committers:$login"
           done
 
-          if [[ "${{ inputs.message != '' }}" == "true" ]] && [[ "${{ inputs.message_search != '' }}" == "true" ]]; then
+          if [[ "${{ inputs.message != '' }}" == "true" ]] && [[ "${{ inputs.message-search != '' }}" == "true" ]]; then
              message='${{ inputs.message }}'
              message_search='${{ inputs.message-search }}'
              if   [[ "$message_search" == "contains" ]]; then
